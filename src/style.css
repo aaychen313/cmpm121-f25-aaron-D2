@@ -40,6 +40,16 @@ canvas {
   image-rendering: pixelated;
 }
 
-.controls { display: flex; gap: 8px; }
-button { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; background: #fff; }
-button:disabled { opacity: .5; }
+.controls {
+  display: flex;
+  gap: 8px;
+}
+button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  background: #fff;
+}
+button:disabled {
+  opacity: 0.5;
+}
