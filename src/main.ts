@@ -7,7 +7,7 @@ type Stroke = Point[];
 interface Model {
   strokes: Stroke[];
   redo: Stroke[];
-  current?: Stroke | undefined; // stroke being drawn
+  current?: Stroke | undefined;
 }
 
 // DOM
@@ -55,8 +55,13 @@ function redraw() {
   ctx.strokeStyle = "black";
   for (const s of model.strokes) drawStroke(s);
   if (model.current) drawStroke(model.current);
+
+  // enable/disable buttons based on stacks
+  undoBtn.disabled = model.strokes.length === 0;
+  redoBtn.disabled = model.redo.length === 0;
 }
 
+// Observe changes
 bus.addEventListener("drawing-changed", redraw);
 
 // Input handling
@@ -91,6 +96,28 @@ clearBtn.addEventListener("click", () => {
   model.strokes.length = 0;
   model.redo.length = 0;
   model.current = undefined;
+  notify("drawing-changed");
+});
+
+const undoBtn = document.createElement("button");
+undoBtn.textContent = "Undo";
+controls.append(undoBtn);
+
+undoBtn.addEventListener("click", () => {
+  if (model.strokes.length === 0) return;
+  const popped = model.strokes.pop()!;
+  model.redo.push(popped);
+  notify("drawing-changed");
+});
+
+const redoBtn = document.createElement("button");
+redoBtn.textContent = "Redo";
+controls.append(redoBtn);
+
+redoBtn.addEventListener("click", () => {
+  if (model.redo.length === 0) return;
+  const popped = model.redo.pop()!;
+  model.strokes.push(popped);
   notify("drawing-changed");
 });
 
