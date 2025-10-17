@@ -1,5 +1,30 @@
-.icon {
-  width: 64px;
-  vertical-align: top;
-  border: 1px solid salmon;
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; font-family: system-ui, sans-serif; }
+
+body {
+  min-height: 100dvh;
+  display: grid;
+  place-items: start center;
+  padding: 32px;
+  background: #f6f7fb;
+  color: #111;
 }
+
+.wrapper {
+  display: grid;
+  gap: 12px;
+  background: #fff;
+  padding: 16px;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.06);
+}
+
+canvas {
+  width: 256px;
+  height: 256px;
+  border: 1px solid #000;
+  border-radius: 12px;                 /* rounded corners */
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,.12)); /* subtle lift */
+  image-rendering: pixelated;
+}
+
