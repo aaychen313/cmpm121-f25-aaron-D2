@@ -1,5 +1,17 @@
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; font-family: system-ui, sans-serif; }
+:root {
+  --surface: #fff;
+  --ink: #111;
+  --gap: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, sans-serif;
+}
 
 body {
   min-height: 100dvh;
@@ -16,15 +28,18 @@ body {
   background: #fff;
   padding: 16px;
   border-radius: 16px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.06);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
 }
 
 canvas {
   width: 256px;
   height: 256px;
   border: 1px solid #000;
-  border-radius: 12px;                 /* rounded corners */
-  filter: drop-shadow(0 4px 10px rgba(0,0,0,.12)); /* subtle lift */
+  border-radius: 12px; /* rounded corners */
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.12)); /* subtle lift */
   image-rendering: pixelated;
 }
 
+.controls { display: flex; gap: 8px; }
+button { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; background: #fff; }
+button:disabled { opacity: .5; }
