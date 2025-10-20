@@ -24,7 +24,6 @@ const notify = (name: string) => bus.dispatchEvent(new Event(name));
 function makeMarkerCommand(opts: { thickness: number }): Command {
   const points: { x: number; y: number }[] = [];
   const thickness = opts.thickness;
-
   return {
     drag(x, y) {
       points.push({ x, y });
@@ -41,6 +40,25 @@ function makeMarkerCommand(opts: { thickness: number }): Command {
         ctx.lineTo(points[i].x, points[i].y);
       }
       ctx.stroke();
+    },
+  };
+}
+
+// preview circle for marker
+function makeMarkerPreview(
+  x: number,
+  y: number,
+  thickness: number,
+): Displayable {
+  return {
+    display(ctx) {
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(0,0,0,0.6)";
+      ctx.beginPath();
+      ctx.arc(x, y, thickness / 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     },
   };
 }
@@ -91,7 +109,6 @@ controls.append(thickBtn);
 
 //Tool State
 let tool: Tool = { kind: "marker", thickness: 4 };
-
 function setTool(t: Tool) {
   tool = t;
   // visual selection
@@ -129,27 +146,51 @@ function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   for (const cmd of model.commands) cmd.display(ctx);
   if (model.current) model.current.display(ctx);
+
+  // draw preview only when not actively drawing
+  if (!isDown && model.preview) model.preview.display(ctx);
+
   undoBtn.disabled = model.commands.length === 0;
   redoBtn.disabled = model.redo.length === 0;
 }
 bus.addEventListener("drawing-changed", redraw);
+bus.addEventListener("tool-moved", redraw);
 
 // Input handling
 let isDown = false;
+
 canvas.addEventListener("mousedown", (e) => {
   isDown = true;
-  const cmd = makeMarkerCommand({ thickness: tool.thickness });
-  cmd.drag(e.offsetX, e.offsetY);
-  model.current = cmd;
-  model.commands.push(cmd);
-  model.redo.length = 0;
-  notify("drawing-changed");
+  if (tool.kind === "marker") {
+    const cmd = makeMarkerCommand({ thickness: tool.thickness });
+    cmd.drag(e.offsetX, e.offsetY);
+    model.current = cmd;
+    model.commands.push(cmd);
+    model.redo.length = 0;
+    notify("drawing-changed");
+  }
 });
 
 canvas.addEventListener("mousemove", (e) => {
-  if (!isDown || !model.current) return;
-  model.current.drag(e.offsetX, e.offsetY);
-  notify("drawing-changed");
+  if (isDown) {
+    // actively drawing
+    if (model.current) {
+      model.current.drag(e.offsetX, e.offsetY);
+      notify("drawing-changed");
+    }
+  } else {
+    // update preview when hovering
+    if (tool.kind === "marker") {
+      model.preview = makeMarkerPreview(e.offsetX, e.offsetY, tool.thickness);
+      notify("tool-moved");
+    }
+  }
+});
+
+canvas.addEventListener("mouseleave", () => {
+  // hide preview when leaving canvas
+  model.preview = null;
+  notify("tool-moved");
 });
 
 canvas.addEventListener("mouseup", () => {
