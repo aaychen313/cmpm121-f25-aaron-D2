@@ -1,6 +1,10 @@
 // Types
-interface Displayable { display(ctx: CanvasRenderingContext2D): void }
-interface DraggableCommand extends Displayable { drag(x: number, y: number): void }
+interface Displayable {
+  display(ctx: CanvasRenderingContext2D): void;
+}
+interface DraggableCommand extends Displayable {
+  drag(x: number, y: number): void;
+}
 type Command = DraggableCommand;
 
 interface Model {
@@ -10,10 +14,13 @@ interface Model {
   preview?: Displayable | null | undefined; // reserved for Step 7+
 }
 
-// Utilities
+type Tool = { kind: "marker"; thickness: number };
+
+// Event bus
 const bus = new EventTarget();
 const notify = (name: string) => bus.dispatchEvent(new Event(name));
 
+// Commands
 function makeMarkerCommand(opts: { thickness: number }): Command {
   const points: { x: number; y: number }[] = [];
   const thickness = opts.thickness;
@@ -37,7 +44,6 @@ function makeMarkerCommand(opts: { thickness: number }): Command {
     },
   };
 }
-
 
 // DOM
 const wrapper = document.createElement("div");
@@ -74,17 +80,55 @@ const redoBtn = document.createElement("button");
 redoBtn.textContent = "Redo";
 controls.append(redoBtn);
 
+// tool buttons
+const thinBtn = document.createElement("button");
+thinBtn.textContent = "Thin";
+controls.append(thinBtn);
+
+const thickBtn = document.createElement("button");
+thickBtn.textContent = "Thick";
+controls.append(thickBtn);
+
+//Tool State
+let tool: Tool = { kind: "marker", thickness: 4 };
+
+function setTool(t: Tool) {
+  tool = t;
+  // visual selection
+  thinBtn.classList.toggle(
+    "selectedTool",
+    t.kind === "marker" && t.thickness === 2,
+  );
+  thickBtn.classList.toggle(
+    "selectedTool",
+    t.kind === "marker" && t.thickness === 8,
+  );
+}
+
+// initial selection
+setTool({ kind: "marker", thickness: 4 }); // neutral start
+thinBtn.addEventListener(
+  "click",
+  () => setTool({ kind: "marker", thickness: 2 }),
+);
+thickBtn.addEventListener(
+  "click",
+  () => setTool({ kind: "marker", thickness: 8 }),
+);
+
 // Model
-const model: Model = { commands: [], redo: [], current: undefined, preview: null };
+const model: Model = {
+  commands: [],
+  redo: [],
+  current: undefined,
+  preview: null,
+};
 
 // Render
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
   for (const cmd of model.commands) cmd.display(ctx);
-
   if (model.current) model.current.display(ctx);
-
   undoBtn.disabled = model.commands.length === 0;
   redoBtn.disabled = model.redo.length === 0;
 }
@@ -94,8 +138,7 @@ bus.addEventListener("drawing-changed", redraw);
 let isDown = false;
 canvas.addEventListener("mousedown", (e) => {
   isDown = true;
-  // default marker thickness = 4
-  const cmd = makeMarkerCommand({ thickness: 4 });
+  const cmd = makeMarkerCommand({ thickness: tool.thickness });
   cmd.drag(e.offsetX, e.offsetY);
   model.current = cmd;
   model.commands.push(cmd);
@@ -136,4 +179,3 @@ redoBtn.addEventListener("click", () => {
 });
 
 redraw();
-
