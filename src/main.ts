@@ -1,35 +1,38 @@
-// Types
-interface Displayable {
-  display(ctx: CanvasRenderingContext2D): void;
+// tools
+interface MarkerTool {
+  kind: "marker";
+  thickness: number; // e.g., 2 or 8
 }
-interface DraggableCommand extends Displayable {
+
+interface StickerTool {
+  kind: "sticker";
+  emoji: string;
+  size: number; // font size in px (e.g., 24, 40)
+}
+
+type Tool = MarkerTool | StickerTool;
+
+const isMarker = (t: Tool): t is MarkerTool => t.kind === "marker";
+const isSticker = (t: Tool): t is StickerTool => t.kind === "sticker";
+
+// command patterns
+interface DisplayCommand {
+  // draw this command onto ctx
+  display(ctx: CanvasRenderingContext2D): void;
+  // grow/move this command as the user drags
   drag(x: number, y: number): void;
 }
-type Command = DraggableCommand;
 
-interface Model {
-  commands: Command[];
-  redo: Command[];
-  current?: Command | undefined;
-  preview?: Displayable | null | undefined; // reserved for Step 7+
-}
-
-type Tool = { kind: "marker"; thickness: number };
-
-// Event bus
-const bus = new EventTarget();
-const notify = (name: string) => bus.dispatchEvent(new Event(name));
-
-// Commands
-function makeMarkerCommand(opts: { thickness: number }): Command {
-  const points: { x: number; y: number }[] = [];
-  const thickness = opts.thickness;
+function makeMarkerCommand(
+  thickness: number,
+  x: number,
+  y: number,
+): DisplayCommand {
+  const points: { x: number; y: number }[] = [{ x, y }];
   return {
-    drag(x, y) {
-      points.push({ x, y });
-    },
     display(ctx) {
       if (points.length < 2) return;
+      ctx.save();
       ctx.lineWidth = thickness;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -40,24 +43,72 @@ function makeMarkerCommand(opts: { thickness: number }): Command {
         ctx.lineTo(points[i].x, points[i].y);
       }
       ctx.stroke();
+      ctx.restore();
+    },
+    drag(nx, ny) {
+      points.push({ x: nx, y: ny });
     },
   };
 }
 
-// preview circle for marker
-function makeMarkerPreview(
+function makeStickerCommand(
+  emoji: string,
+  size: number,
   x: number,
   y: number,
-  thickness: number,
-): Displayable {
+): DisplayCommand {
+  let px = x, py = y;
   return {
     display(ctx) {
       ctx.save();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(0,0,0,0.6)";
+      ctx.font =
+        `${size}px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(emoji, px, py);
+      ctx.restore();
+    },
+    // Drag repositions the sticker (not a path)
+    drag(nx, ny) {
+      px = nx;
+      py = ny;
+    },
+  };
+}
+
+// preview
+interface Preview {
+  display(ctx: CanvasRenderingContext2D): void;
+}
+
+function makeMarkerPreview(thickness: number, x: number, y: number): Preview {
+  return {
+    display(ctx) {
+      ctx.save();
+      ctx.globalAlpha = 0.5;
       ctx.beginPath();
       ctx.arc(x, y, thickness / 2, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.fill();
+      ctx.restore();
+    },
+  };
+}
+
+function makeStickerPreview(
+  emoji: string,
+  size: number,
+  x: number,
+  y: number,
+): Preview {
+  return {
+    display(ctx) {
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      ctx.font =
+        `${size}px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(emoji, x, y);
       ctx.restore();
     },
   };
@@ -107,23 +158,128 @@ const thickBtn = document.createElement("button");
 thickBtn.textContent = "Thick";
 controls.append(thickBtn);
 
-//Tool State
-let tool: Tool = { kind: "marker", thickness: 4 };
-function setTool(t: Tool) {
-  tool = t;
-  // visual selection
-  thinBtn.classList.toggle(
-    "selectedTool",
-    t.kind === "marker" && t.thickness === 2,
-  );
-  thickBtn.classList.toggle(
-    "selectedTool",
-    t.kind === "marker" && t.thickness === 8,
-  );
+// Sticker buttons
+type StickerMeta = { emoji: string; size: number };
+interface StickerButton extends HTMLButtonElement {
+  _sticker: StickerMeta;
 }
 
-// initial selection
-setTool({ kind: "marker", thickness: 4 }); // neutral start
+function makeStickerButton(emoji: string, size: number): StickerButton {
+  const b = document.createElement("button") as StickerButton;
+  b.textContent = `${emoji} ${size}`;
+  (b as StickerButton)._sticker = { emoji, size };
+  controls.append(b);
+  return b;
+}
+
+const stickerBtns: StickerButton[] = [
+  makeStickerButton("⭐", 24),
+  makeStickerButton("🔥", 24),
+  makeStickerButton("👍", 40),
+];
+
+// Model
+const bus = new EventTarget();
+const notify = (name: string) => bus.dispatchEvent(new Event(name));
+
+let tool: Tool = { kind: "marker", thickness: 2 }; // default
+let current: DisplayCommand | undefined;
+let preview: Preview | undefined;
+const displayList: DisplayCommand[] = [];
+const redoStack: DisplayCommand[] = [];
+let mouseDown = false;
+let mouseX = 0, mouseY = 0;
+
+// Redraw
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // draw display list
+  for (const cmd of displayList) cmd.display(ctx);
+  if (current) current.display(ctx);
+
+  // preview shows only when mouse is NOT down
+  if (!mouseDown && preview) preview.display(ctx);
+
+  // button states
+  undoBtn.disabled = displayList.length === 0;
+  redoBtn.disabled = redoStack.length === 0;
+}
+
+bus.addEventListener("drawing-changed", redraw);
+bus.addEventListener("tool-moved", redraw);
+
+// Tool selection
+function setTool(t: Tool) {
+  tool = t;
+
+  // highlight marker buttons
+  thinBtn.classList.toggle("selectedTool", isMarker(t) && t.thickness === 2);
+  thickBtn.classList.toggle("selectedTool", isMarker(t) && t.thickness === 8);
+
+  // highlight sticker buttons
+  for (const b of stickerBtns) {
+    const { emoji, size } = b._sticker;
+    b.classList.toggle(
+      "selectedTool",
+      isSticker(t) && t.emoji === emoji && t.size === size,
+    );
+  }
+
+  // update preview immediately at current mouse
+  updatePreview(mouseX, mouseY);
+  notify("tool-moved");
+}
+
+// Preview update
+function updatePreview(x: number, y: number) {
+  if (mouseDown) {
+    preview = undefined;
+    return;
+  }
+  if (isMarker(tool)) {
+    preview = makeMarkerPreview(tool.thickness, x, y);
+  } else {
+    preview = makeStickerPreview(tool.emoji, tool.size, x, y);
+  }
+}
+
+// Input handling
+canvas.addEventListener("mousedown", (e) => {
+  mouseDown = true;
+  const x = e.offsetX, y = e.offsetY;
+
+  if (isMarker(tool)) {
+    current = makeMarkerCommand(tool.thickness, x, y);
+  } else {
+    current = makeStickerCommand(tool.emoji, tool.size, x, y);
+  }
+  displayList.push(current);
+  redoStack.length = 0; // new action invalidates redo chain
+  notify("drawing-changed");
+});
+
+canvas.addEventListener("mousemove", (e) => {
+  mouseX = e.offsetX;
+  mouseY = e.offsetY;
+
+  if (current) {
+    current.drag(mouseX, mouseY);
+    notify("drawing-changed");
+  } else {
+    updatePreview(mouseX, mouseY);
+    notify("tool-moved");
+  }
+});
+
+canvas.addEventListener("mouseup", () => {
+  mouseDown = false;
+  current = undefined;
+  updatePreview(mouseX, mouseY);
+  notify("drawing-changed");
+});
+
+// Controls
 thinBtn.addEventListener(
   "click",
   () => setTool({ kind: "marker", thickness: 2 }),
@@ -133,90 +289,34 @@ thickBtn.addEventListener(
   () => setTool({ kind: "marker", thickness: 8 }),
 );
 
-// Model
-const model: Model = {
-  commands: [],
-  redo: [],
-  current: undefined,
-  preview: null,
-};
-
-// Render
-function redraw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  for (const cmd of model.commands) cmd.display(ctx);
-  if (model.current) model.current.display(ctx);
-
-  // draw preview only when not actively drawing
-  if (!isDown && model.preview) model.preview.display(ctx);
-
-  undoBtn.disabled = model.commands.length === 0;
-  redoBtn.disabled = model.redo.length === 0;
+for (const b of stickerBtns) {
+  b.addEventListener("click", () => {
+    const { emoji, size } = b._sticker;
+    setTool({ kind: "sticker", emoji, size });
+  });
 }
-bus.addEventListener("drawing-changed", redraw);
-bus.addEventListener("tool-moved", redraw);
 
-// Input handling
-let isDown = false;
-
-canvas.addEventListener("mousedown", (e) => {
-  isDown = true;
-  if (tool.kind === "marker") {
-    const cmd = makeMarkerCommand({ thickness: tool.thickness });
-    cmd.drag(e.offsetX, e.offsetY);
-    model.current = cmd;
-    model.commands.push(cmd);
-    model.redo.length = 0;
-    notify("drawing-changed");
-  }
-});
-
-canvas.addEventListener("mousemove", (e) => {
-  if (isDown) {
-    // actively drawing
-    if (model.current) {
-      model.current.drag(e.offsetX, e.offsetY);
-      notify("drawing-changed");
-    }
-  } else {
-    // update preview when hovering
-    if (tool.kind === "marker") {
-      model.preview = makeMarkerPreview(e.offsetX, e.offsetY, tool.thickness);
-      notify("tool-moved");
-    }
-  }
-});
-
-canvas.addEventListener("mouseleave", () => {
-  // hide preview when leaving canvas
-  model.preview = null;
-  notify("tool-moved");
-});
-
-canvas.addEventListener("mouseup", () => {
-  isDown = false;
-  model.current = undefined;
-  notify("drawing-changed");
-});
-
-// Controls
 clearBtn.addEventListener("click", () => {
-  model.commands.length = 0;
-  model.redo.length = 0;
-  model.current = undefined;
+  displayList.length = 0;
+  redoStack.length = 0;
+  current = undefined;
+  preview = undefined;
   notify("drawing-changed");
 });
 
 undoBtn.addEventListener("click", () => {
-  if (model.commands.length === 0) return;
-  model.redo.push(model.commands.pop()!);
+  if (displayList.length === 0) return;
+  const popped = displayList.pop()!;
+  redoStack.push(popped);
   notify("drawing-changed");
 });
 
 redoBtn.addEventListener("click", () => {
-  if (model.redo.length === 0) return;
-  model.commands.push(model.redo.pop()!);
+  if (redoStack.length === 0) return;
+  const popped = redoStack.pop()!;
+  displayList.push(popped);
   notify("drawing-changed");
 });
 
+setTool(tool);
 redraw();
