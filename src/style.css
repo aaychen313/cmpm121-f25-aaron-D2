@@ -61,3 +61,15 @@ button:disabled {
 button.selectedTool {
   outline: 2px solid #333;
 }
+
+.controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+button.selectedTool {
+  outline: 2px solid #222;
+  background: #eef;
+  font-weight: 600;
+}

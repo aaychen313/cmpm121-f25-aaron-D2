@@ -165,8 +165,10 @@ function loadCustom(): StickerMeta[] {
 function saveCustom(arr: StickerMeta[]) {
   try {
     localStorage.setItem(STICKERS_KEY, JSON.stringify(arr));
+    // deno-lint-ignore no-empty
   } catch {}
 }
+// deno-lint-ignore prefer-const
 let customStickers = loadCustom();
 
 const stickerBar = document.createElement("div");
@@ -190,7 +192,7 @@ function renderStickerButtons() {
 renderStickerButtons();
 
 const customBtn = document.createElement("button");
-customBtn.textContent = "➕ Custom";
+customBtn.textContent = "Custom Emoji";
 customBtn.addEventListener("click", () => {
   const text = prompt("Custom sticker text", "🧽");
   if (!text) return;
@@ -210,7 +212,9 @@ const undoBtn = document.createElement("button");
 undoBtn.textContent = "Undo";
 const redoBtn = document.createElement("button");
 redoBtn.textContent = "Redo";
-controls.append(clearBtn, undoBtn, redoBtn);
+const exportBtn = document.createElement("button");
+exportBtn.textContent = "Export 1024px";
+controls.append(clearBtn, undoBtn, redoBtn, exportBtn);
 
 // Model
 const bus = new EventTarget();
@@ -336,6 +340,23 @@ redoBtn.addEventListener("click", () => {
   const popped = redoStack.pop()!;
   displayList.push(popped);
   notify("drawing-changed");
+});
+
+// Export logic
+exportBtn.addEventListener("click", () => {
+  const scale = 4;
+  const big = document.createElement("canvas");
+  big.width = canvas.width * scale;   // 256 * 4 = 1024
+  big.height = canvas.height * scale; // 1024
+  const bctx = big.getContext("2d")!;
+  bctx.save(); bctx.scale(scale, scale);
+  for (const cmd of displayList) cmd.display(bctx); // no preview
+  bctx.restore();
+
+  const a = document.createElement("a");
+  a.href = big.toDataURL("image/png");
+  a.download = "sketchpad.png";
+  a.click();
 });
 
 setTool(tool);
