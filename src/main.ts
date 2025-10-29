@@ -2,12 +2,14 @@
 interface MarkerTool {
   kind: "marker";
   thickness: number;
+  color: string;
 }
 
 interface StickerTool {
   kind: "sticker";
   emoji: string;
   size: number;
+  rotationDeg: number;
 }
 
 type Tool = MarkerTool | StickerTool;
@@ -23,10 +25,11 @@ interface DisplayCommand {
 
 function makeMarkerCommand(
   thickness: number,
+  color: string,
   x: number,
   y: number,
 ): DisplayCommand {
-  const points: { x: number; y: number }[] = [{ x, y }];
+  const points = [{ x, y }];
   return {
     display(ctx) {
       if (points.length < 2) return;
@@ -34,7 +37,7 @@ function makeMarkerCommand(
       ctx.lineWidth = thickness;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      ctx.strokeStyle = "black";
+      ctx.strokeStyle = color;
       ctx.beginPath();
       ctx.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < points.length; i++) {
@@ -52,6 +55,7 @@ function makeMarkerCommand(
 function makeStickerCommand(
   emoji: string,
   size: number,
+  rotationDeg: number,
   x: number,
   y: number,
 ): DisplayCommand {
@@ -59,11 +63,13 @@ function makeStickerCommand(
   return {
     display(ctx) {
       ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate((rotationDeg * Math.PI) / 180);
       ctx.font =
         `${size}px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(emoji, px, py);
+      ctx.fillText(emoji, 0, 0);
       ctx.restore();
     },
     // Drag repositions the sticker
@@ -79,11 +85,17 @@ interface Preview {
   display(ctx: CanvasRenderingContext2D): void;
 }
 
-function makeMarkerPreview(thickness: number, x: number, y: number): Preview {
+function makeMarkerPreview(
+  thickness: number,
+  color: string,
+  x: number,
+  y: number,
+): Preview {
   return {
     display(ctx) {
       ctx.save();
       ctx.globalAlpha = 0.5;
+      ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(x, y, thickness / 2, 0, Math.PI * 2);
       ctx.fill();
@@ -95,6 +107,7 @@ function makeMarkerPreview(thickness: number, x: number, y: number): Preview {
 function makeStickerPreview(
   emoji: string,
   size: number,
+  rotationDeg: number,
   x: number,
   y: number,
 ): Preview {
@@ -102,11 +115,13 @@ function makeStickerPreview(
     display(ctx) {
       ctx.save();
       ctx.globalAlpha = 0.6;
+      ctx.translate(x, y);
+      ctx.rotate((rotationDeg * Math.PI) / 180);
       ctx.font =
         `${size}px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(emoji, x, y);
+      ctx.fillText(emoji, 0, 0);
       ctx.restore();
     },
   };
@@ -136,12 +151,23 @@ controls.className = "controls";
 wrapper.append(controls);
 
 // marker buttons
-const THIN = 3, THICK = 10; 
+const THIN = 3, THICK = 10;
 const thinBtn = document.createElement("button");
 thinBtn.textContent = "Thin";
 const thickBtn = document.createElement("button");
 thickBtn.textContent = "Thick";
-controls.append(thinBtn, thickBtn);
+const hueWrap = document.createElement("label");
+hueWrap.style.display = "inline-flex";
+hueWrap.style.alignItems = "center";
+hueWrap.style.gap = "8px";
+hueWrap.textContent = "Hue:";
+const hue = document.createElement("input");
+hue.type = "range";
+hue.min = "0";
+hue.max = "360";
+hue.value = "210";
+hueWrap.append(hue);
+controls.append(thinBtn, thickBtn, hueWrap);
 
 // Sticker buttons
 type StickerMeta = { emoji: string; size: number };
@@ -175,16 +201,26 @@ const stickerBar = document.createElement("div");
 stickerBar.style.display = "flex";
 stickerBar.style.gap = "8px";
 controls.append(stickerBar);
+
 let stickerBtns: StickerButton[] = [];
 function renderStickerButtons() {
-  for (const b of stickerBtns) b.remove();
+  for (const b of stickerBtns) {
+    b.remove();
+  }
   stickerBtns = [];
-  const all = [...defaultStickers, ...customStickers];
-  for (const meta of all) {
+  for (const meta of [...defaultStickers, ...customStickers]) {
     const b = document.createElement("button") as StickerButton;
     b._sticker = meta;
     b.textContent = `${meta.emoji} ${meta.size}`;
-    b.addEventListener("click", () => setTool({ kind: "sticker", ...meta }));
+    b.addEventListener("click", () => {
+      const rotationDeg = Math.floor(Math.random() * 360); // random rotation each select
+      setTool({
+        kind: "sticker",
+        emoji: meta.emoji,
+        size: meta.size,
+        rotationDeg,
+      });
+    });
     stickerBar.append(b);
     stickerBtns.push(b);
   }
@@ -193,6 +229,7 @@ renderStickerButtons();
 
 const customBtn = document.createElement("button");
 customBtn.textContent = "Custom Emoji";
+
 customBtn.addEventListener("click", () => {
   const text = prompt("Custom sticker text", "🧽");
   if (!text) return;
@@ -201,7 +238,12 @@ customBtn.addEventListener("click", () => {
   customStickers.push({ emoji: text, size });
   saveCustom(customStickers);
   renderStickerButtons();
-  setTool({ kind: "sticker", emoji: text, size });
+  setTool({
+    kind: "sticker",
+    emoji: text,
+    size,
+    rotationDeg: Math.floor(Math.random() * 360),
+  });
 });
 controls.append(customBtn);
 
@@ -220,7 +262,8 @@ controls.append(clearBtn, undoBtn, redoBtn, exportBtn);
 const bus = new EventTarget();
 const notify = (name: string) => bus.dispatchEvent(new Event(name));
 
-let tool: Tool = { kind: "marker", thickness: THIN }; // default
+let markerColor = hsl(+hue.value);
+let tool: Tool = { kind: "marker", thickness: THIN, color: markerColor };
 let current: DisplayCommand | undefined;
 let preview: Preview | undefined;
 const displayList: DisplayCommand[] = [];
@@ -261,7 +304,6 @@ function setTool(t: Tool) {
       isSticker(t) && t.emoji === emoji && t.size === size,
     );
   }
-
   // update preview immediately at current mouse
   updatePreview(mouseX, mouseY);
   notify("tool-moved");
@@ -274,8 +316,8 @@ function updatePreview(x: number, y: number) {
     return;
   }
   preview = isMarker(tool)
-    ? makeMarkerPreview(tool.thickness, x, y)
-    : makeStickerPreview(tool.emoji, tool.size, x, y);
+    ? makeMarkerPreview(tool.thickness, tool.color, x, y)
+    : makeStickerPreview(tool.emoji, tool.size, tool.rotationDeg, x, y);
 }
 
 // Input handling
@@ -283,8 +325,8 @@ canvas.addEventListener("mousedown", (e) => {
   mouseDown = true;
   const x = e.offsetX, y = e.offsetY;
   current = isMarker(tool)
-    ? makeMarkerCommand(tool.thickness, x, y)
-    : makeStickerCommand(tool.emoji, tool.size, x, y);
+    ? makeMarkerCommand(tool.thickness, tool.color, x, y)
+    : makeStickerCommand(tool.emoji, tool.size, tool.rotationDeg, x, y);
   displayList.push(current);
   redoStack.length = 0;
   notify("drawing-changed");
@@ -313,12 +355,29 @@ canvas.addEventListener("mouseup", () => {
 // Controls
 thinBtn.addEventListener(
   "click",
-  () => setTool({ kind: "marker", thickness: THIN }),
+  () =>
+    setTool({
+      kind: "marker",
+      thickness: THIN,
+      color: markerColor,
+    }),
 );
 thickBtn.addEventListener(
   "click",
-  () => setTool({ kind: "marker", thickness: THICK }),
+  () =>
+    setTool({
+      kind: "marker",
+      thickness: THICK,
+      color: markerColor,
+    }),
 );
+
+hue.addEventListener("input", () => {
+  markerColor = hsl(+hue.value);
+  if (isMarker(tool)) {
+    setTool({ kind: "marker", thickness: tool.thickness, color: markerColor });
+  }
+});
 
 clearBtn.addEventListener("click", () => {
   displayList.length = 0;
@@ -360,5 +419,11 @@ exportBtn.addEventListener("click", () => {
   a.click();
 });
 
+// helpers
+function hsl(h: number, s = 80, l = 45) {
+  return `hsl(${Math.round(h)}, ${s}%, ${l}%)`;
+}
+
+// init
 setTool(tool);
 redraw();
