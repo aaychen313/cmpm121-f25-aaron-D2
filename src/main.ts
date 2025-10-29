@@ -1,13 +1,13 @@
 // tools
 interface MarkerTool {
   kind: "marker";
-  thickness: number; // e.g., 2 or 8
+  thickness: number;
 }
 
 interface StickerTool {
   kind: "sticker";
   emoji: string;
-  size: number; // font size in px (e.g., 24, 40)
+  size: number;
 }
 
 type Tool = MarkerTool | StickerTool;
@@ -17,9 +17,7 @@ const isSticker = (t: Tool): t is StickerTool => t.kind === "sticker";
 
 // command patterns
 interface DisplayCommand {
-  // draw this command onto ctx
   display(ctx: CanvasRenderingContext2D): void;
-  // grow/move this command as the user drags
   drag(x: number, y: number): void;
 }
 
@@ -68,7 +66,7 @@ function makeStickerCommand(
       ctx.fillText(emoji, px, py);
       ctx.restore();
     },
-    // Drag repositions the sticker (not a path)
+    // Drag repositions the sticker
     drag(nx, ny) {
       px = nx;
       py = ny;
@@ -137,52 +135,88 @@ const controls = document.createElement("div");
 controls.className = "controls";
 wrapper.append(controls);
 
-const clearBtn = document.createElement("button");
-clearBtn.textContent = "Clear";
-controls.append(clearBtn);
-
-const undoBtn = document.createElement("button");
-undoBtn.textContent = "Undo";
-controls.append(undoBtn);
-
-const redoBtn = document.createElement("button");
-redoBtn.textContent = "Redo";
-controls.append(redoBtn);
-
-// tool buttons
+// marker buttons
+const THIN = 3, THICK = 9; // defaults for now (tune in Step 11)
 const thinBtn = document.createElement("button");
 thinBtn.textContent = "Thin";
-controls.append(thinBtn);
-
 const thickBtn = document.createElement("button");
 thickBtn.textContent = "Thick";
-controls.append(thickBtn);
+controls.append(thinBtn, thickBtn);
 
 // Sticker buttons
 type StickerMeta = { emoji: string; size: number };
 interface StickerButton extends HTMLButtonElement {
   _sticker: StickerMeta;
 }
+const STICKERS_KEY = "customStickers.v1";
 
-function makeStickerButton(emoji: string, size: number): StickerButton {
-  const b = document.createElement("button") as StickerButton;
-  b.textContent = `${emoji} ${size}`;
-  (b as StickerButton)._sticker = { emoji, size };
-  controls.append(b);
-  return b;
-}
-
-const stickerBtns: StickerButton[] = [
-  makeStickerButton("⭐", 24),
-  makeStickerButton("🔥", 24),
-  makeStickerButton("👍", 40),
+const defaultStickers: StickerMeta[] = [
+  { emoji: "⭐", size: 28 },
+  { emoji: "🔥", size: 28 },
+  { emoji: "👍", size: 44 },
 ];
+function loadCustom(): StickerMeta[] {
+  try {
+    return JSON.parse(localStorage.getItem(STICKERS_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+function saveCustom(arr: StickerMeta[]) {
+  try {
+    localStorage.setItem(STICKERS_KEY, JSON.stringify(arr));
+  } catch {}
+}
+let customStickers = loadCustom();
+
+const stickerBar = document.createElement("div");
+stickerBar.style.display = "flex";
+stickerBar.style.gap = "8px";
+controls.append(stickerBar);
+let stickerBtns: StickerButton[] = [];
+function renderStickerButtons() {
+  for (const b of stickerBtns) b.remove();
+  stickerBtns = [];
+  const all = [...defaultStickers, ...customStickers];
+  for (const meta of all) {
+    const b = document.createElement("button") as StickerButton;
+    b._sticker = meta;
+    b.textContent = `${meta.emoji} ${meta.size}`;
+    b.addEventListener("click", () => setTool({ kind: "sticker", ...meta }));
+    stickerBar.append(b);
+    stickerBtns.push(b);
+  }
+}
+renderStickerButtons();
+
+const customBtn = document.createElement("button");
+customBtn.textContent = "➕ Custom";
+customBtn.addEventListener("click", () => {
+  const text = prompt("Custom sticker text", "🧽");
+  if (!text) return;
+  const sizeStr = prompt("Size in px", "32");
+  const size = Math.max(8, Math.min(128, Number(sizeStr ?? 32) || 32));
+  customStickers.push({ emoji: text, size });
+  saveCustom(customStickers);
+  renderStickerButtons();
+  setTool({ kind: "sticker", emoji: text, size });
+});
+controls.append(customBtn);
+
+// Utility buttons
+const clearBtn = document.createElement("button");
+clearBtn.textContent = "Clear";
+const undoBtn = document.createElement("button");
+undoBtn.textContent = "Undo";
+const redoBtn = document.createElement("button");
+redoBtn.textContent = "Redo";
+controls.append(clearBtn, undoBtn, redoBtn);
 
 // Model
 const bus = new EventTarget();
 const notify = (name: string) => bus.dispatchEvent(new Event(name));
 
-let tool: Tool = { kind: "marker", thickness: 2 }; // default
+let tool: Tool = { kind: "marker", thickness: THIN }; // default
 let current: DisplayCommand | undefined;
 let preview: Preview | undefined;
 const displayList: DisplayCommand[] = [];
@@ -193,14 +227,11 @@ let mouseX = 0, mouseY = 0;
 // Redraw
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
   // draw display list
   for (const cmd of displayList) cmd.display(ctx);
   if (current) current.display(ctx);
-
   // preview shows only when mouse is NOT down
   if (!mouseDown && preview) preview.display(ctx);
-
   // button states
   undoBtn.disabled = displayList.length === 0;
   redoBtn.disabled = redoStack.length === 0;
@@ -212,11 +243,12 @@ bus.addEventListener("tool-moved", redraw);
 // Tool selection
 function setTool(t: Tool) {
   tool = t;
-
   // highlight marker buttons
-  thinBtn.classList.toggle("selectedTool", isMarker(t) && t.thickness === 2);
-  thickBtn.classList.toggle("selectedTool", isMarker(t) && t.thickness === 8);
-
+  thinBtn.classList.toggle("selectedTool", isMarker(t) && t.thickness === THIN);
+  thickBtn.classList.toggle(
+    "selectedTool",
+    isMarker(t) && t.thickness === THICK,
+  );
   // highlight sticker buttons
   for (const b of stickerBtns) {
     const { emoji, size } = b._sticker;
@@ -237,25 +269,20 @@ function updatePreview(x: number, y: number) {
     preview = undefined;
     return;
   }
-  if (isMarker(tool)) {
-    preview = makeMarkerPreview(tool.thickness, x, y);
-  } else {
-    preview = makeStickerPreview(tool.emoji, tool.size, x, y);
-  }
+  preview = isMarker(tool)
+    ? makeMarkerPreview(tool.thickness, x, y)
+    : makeStickerPreview(tool.emoji, tool.size, x, y);
 }
 
 // Input handling
 canvas.addEventListener("mousedown", (e) => {
   mouseDown = true;
   const x = e.offsetX, y = e.offsetY;
-
-  if (isMarker(tool)) {
-    current = makeMarkerCommand(tool.thickness, x, y);
-  } else {
-    current = makeStickerCommand(tool.emoji, tool.size, x, y);
-  }
+  current = isMarker(tool)
+    ? makeMarkerCommand(tool.thickness, x, y)
+    : makeStickerCommand(tool.emoji, tool.size, x, y);
   displayList.push(current);
-  redoStack.length = 0; // new action invalidates redo chain
+  redoStack.length = 0;
   notify("drawing-changed");
 });
 
@@ -282,19 +309,12 @@ canvas.addEventListener("mouseup", () => {
 // Controls
 thinBtn.addEventListener(
   "click",
-  () => setTool({ kind: "marker", thickness: 2 }),
+  () => setTool({ kind: "marker", thickness: THIN }),
 );
 thickBtn.addEventListener(
   "click",
-  () => setTool({ kind: "marker", thickness: 8 }),
+  () => setTool({ kind: "marker", thickness: THICK }),
 );
-
-for (const b of stickerBtns) {
-  b.addEventListener("click", () => {
-    const { emoji, size } = b._sticker;
-    setTool({ kind: "sticker", emoji, size });
-  });
-}
 
 clearBtn.addEventListener("click", () => {
   displayList.length = 0;
