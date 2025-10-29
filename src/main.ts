@@ -136,7 +136,7 @@ controls.className = "controls";
 wrapper.append(controls);
 
 // marker buttons
-const THIN = 3, THICK = 9; // defaults for now (tune in Step 11)
+const THIN = 3, THICK = 10; 
 const thinBtn = document.createElement("button");
 thinBtn.textContent = "Thin";
 const thickBtn = document.createElement("button");
@@ -153,7 +153,7 @@ const STICKERS_KEY = "customStickers.v1";
 const defaultStickers: StickerMeta[] = [
   { emoji: "⭐", size: 28 },
   { emoji: "🔥", size: 28 },
-  { emoji: "👍", size: 44 },
+  { emoji: "👍", size: 30 },
 ];
 function loadCustom(): StickerMeta[] {
   try {
@@ -346,10 +346,11 @@ redoBtn.addEventListener("click", () => {
 exportBtn.addEventListener("click", () => {
   const scale = 4;
   const big = document.createElement("canvas");
-  big.width = canvas.width * scale;   // 256 * 4 = 1024
+  big.width = canvas.width * scale; // 256 * 4 = 1024
   big.height = canvas.height * scale; // 1024
   const bctx = big.getContext("2d")!;
-  bctx.save(); bctx.scale(scale, scale);
+  bctx.save();
+  bctx.scale(scale, scale);
   for (const cmd of displayList) cmd.display(bctx); // no preview
   bctx.restore();
 
